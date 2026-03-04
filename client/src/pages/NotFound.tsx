@@ -1,3 +1,4 @@
+import { API_BASE } from "@/config";
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 

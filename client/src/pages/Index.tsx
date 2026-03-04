@@ -1,3 +1,4 @@
+import { API_BASE } from "@/config";
 import Navigation from "@/components/Navigation";
 import Hero from "@/components/Hero";
 import Benefits from "@/components/Benefits";

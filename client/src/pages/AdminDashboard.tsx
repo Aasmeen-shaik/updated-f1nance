@@ -1,10 +1,11 @@
+import { API_BASE } from "@/config";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import AdminDashboardLayout from "@/components/AdminDashboardLayout";
 import { TrendingUp, Users, FileText, Award } from "lucide-react";
 import { getCookie } from "@/lib/cookie";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "${API_BASE}";
 
 const AdminDashboard = () => {
   const [adminName, setAdminName] = useState("Admin");

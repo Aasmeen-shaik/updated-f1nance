@@ -1,3 +1,4 @@
+import { API_BASE } from "@/config";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -49,7 +50,7 @@ const mapExpense = (e: any): Expense => ({
   date: e.date,
 });
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "${API_BASE}";
 
 // === CurrencyTrace Component ===
 interface CurrencyTraceProps {

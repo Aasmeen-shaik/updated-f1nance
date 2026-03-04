@@ -1,3 +1,4 @@
+import { API_BASE } from "@/config";
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
 

@@ -1,10 +1,11 @@
+import { API_BASE } from "@/config";
 import { useState, useEffect } from "react";
 import AdminDashboardLayout from "@/components/AdminDashboardLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getCookie } from "@/lib/cookie";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "${API_BASE}";
 
 interface Payment {
   id: number;

@@ -1,9 +1,10 @@
+import { API_BASE } from "@/config";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
 import { TrendingUp, TrendingDown, Calendar, Award } from "lucide-react";
 import { getCookie } from "@/lib/cookie";
-import { getCurrentUser } from "@/lib/authApi";
+import { API_BASE } from "@/config";
 
 interface IncomeItem {
   id: number;
@@ -52,7 +53,7 @@ const detectType = (desc: string) => {
   return "other";
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
+// API_BASE is now imported from @/config
 
 const Dashboard = () => {
   const token = getCookie("token");
@@ -127,7 +128,7 @@ const Dashboard = () => {
       setBudgetRemaining(incomeTotal - expenseTotal);
 
       // Chart last 6 months
-      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       const grouped: MonthlyData[] = months.map(m => ({ month: m, income: 0, expense: 0 }));
 
       incomeData.forEach(inc => {
@@ -166,8 +167,8 @@ const Dashboard = () => {
           status: p.status || "pending",
         }))
         .filter((p: UpcomingPayment) => new Date(p.scheduled_date) > today && p.status === "pending")
-        .sort((a,b)=> new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime())
-        .slice(0,5);
+        .sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime())
+        .slice(0, 5);
 
       setUpcomingPayments(upcoming);
 
@@ -182,7 +183,7 @@ const Dashboard = () => {
   const handlePlanSubmit = async () => {
     try {
       const payload = { plan_name: selectedPlan }; // backend only needs plan_name
-  
+
       const res = await fetch(`${API_BASE}/subscriptions/create`, {
         method: "POST",
         headers: {
@@ -191,12 +192,12 @@ const Dashboard = () => {
         },
         body: JSON.stringify(payload),
       });
-  
+
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.detail || "Failed to create subscription");
       }
-  
+
       const data: Subscription = await res.json();
       setSubscription(data);
       setShowPlanModal(false);
@@ -205,7 +206,7 @@ const Dashboard = () => {
       alert(err.message || "Something went wrong while creating subscription");
     }
   };
-  
+
   return (
     <DashboardLayout>
       <div className="p-8">
@@ -220,50 +221,50 @@ const Dashboard = () => {
         {/* --- SUMMARY CARDS --- */}
         <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           {/* Income */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.1 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <span className="text-muted-foreground text-sm font-medium">Income</span>
-              <TrendingUp className="w-5 h-5 text-secondary"/>
+              <TrendingUp className="w-5 h-5 text-secondary" />
             </div>
             <p className="font-heading text-3xl font-bold mb-1">${totalIncome.toLocaleString()}</p>
             <p className="text-xs text-secondary">+ calculated dynamically</p>
           </motion.div>
 
           {/* Expenses */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.2 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <span className="text-muted-foreground text-sm font-medium">Expenses</span>
-              <TrendingDown className="w-5 h-5 text-destructive"/>
+              <TrendingDown className="w-5 h-5 text-destructive" />
             </div>
             <p className="font-heading text-3xl font-bold mb-1">${totalExpenses.toLocaleString()}</p>
             <p className="text-xs text-destructive">+ calculated dynamically</p>
           </motion.div>
 
           {/* Budget Remaining */}
-          <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.3 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <span className="text-muted-foreground text-sm font-medium">Budget Remaining</span>
-              <Award className="w-5 h-5 text-accent"/>
+              <Award className="w-5 h-5 text-accent" />
             </div>
             <p className="font-heading text-3xl font-bold mb-1">${budgetRemaining.toLocaleString()}</p>
             <p className="text-xs text-muted-foreground">auto-computed from income - expenses</p>
           </motion.div>
 
           {/* Financial Score */}
-          <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.4 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <span className="text-muted-foreground text-sm font-medium">Financial Score</span>
-              <Calendar className="w-5 h-5 text-primary"/>
+              <Calendar className="w-5 h-5 text-primary" />
             </div>
             <p className="font-heading text-3xl font-bold mb-1">78/100</p>
             <p className="text-xs text-primary">Good standing</p>
           </motion.div>
 
           {/* Subscription Plan */}
-          <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.5 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
             <div className="flex items-center justify-between mb-4">
               <span className="text-muted-foreground text-sm font-medium">Plan</span>
-              <Award className="w-5 h-5 text-primary"/>
+              <Award className="w-5 h-5 text-primary" />
             </div>
             <p className="font-heading text-3xl font-bold mb-1">{subscription?.plan_name || "Free Plan"}</p>
             <p className="text-xs text-muted-foreground">Status: {subscription?.status || "inactive"}</p>
@@ -273,14 +274,14 @@ const Dashboard = () => {
         {/* --- CHART + PAYMENTS --- */}
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Chart */}
-          <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.6 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
             <h3 className="font-heading text-xl font-semibold mb-6">Income vs Expenses</h3>
             <div className="flex items-end gap-3 h-64">
-              {chartData.map((d,i) => (
+              {chartData.map((d, i) => (
                 <div key={i} className="flex-1 flex flex-col gap-2 items-center">
                   <div className="w-full flex gap-1 items-end h-48">
-                    <div className="flex-1 bg-secondary/80 rounded-t" style={{height:`${Math.min(d.income/10,100)}%`}}/>
-                    <div className="flex-1 bg-destructive/60 rounded-t" style={{height:`${Math.min(d.expense/10,100)}%`}}/>
+                    <div className="flex-1 bg-secondary/80 rounded-t" style={{ height: `${Math.min(d.income / 10, 100)}%` }} />
+                    <div className="flex-1 bg-destructive/60 rounded-t" style={{ height: `${Math.min(d.expense / 10, 100)}%` }} />
                   </div>
                   <span className="text-xs text-muted-foreground">{d.month}</span>
                 </div>
@@ -288,18 +289,18 @@ const Dashboard = () => {
             </div>
             <div className="flex justify-center gap-6 mt-6">
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-secondary"/>
+                <div className="w-3 h-3 rounded-full bg-secondary" />
                 <span className="text-sm text-muted-foreground">Income</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-destructive"/>
+                <div className="w-3 h-3 rounded-full bg-destructive" />
                 <span className="text-sm text-muted-foreground">Expenses</span>
               </div>
             </div>
           </motion.div>
 
           {/* Upcoming Payments */}
-          <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay:0.7}} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }} className="bg-card/30 backdrop-blur-sm rounded-xl border border-border p-6">
             <h3 className="font-heading text-xl font-semibold mb-6">Upcoming Payments</h3>
             {upcomingPayments.length === 0 ? (
               <p className="text-muted-foreground text-sm">No upcoming payments.</p>
@@ -307,8 +308,8 @@ const Dashboard = () => {
               <div className="space-y-4">
                 {upcomingPayments.map((p) => {
                   const type = detectType(p.description);
-                  const typeClass = type==="tuition" ? "text-destructive" : type==="tax" ? "text-accent" : "text-foreground";
-                  const formattedDate = new Date(p.scheduled_date).toLocaleDateString("en-US", {month:"short", day:"numeric"});
+                  const typeClass = type === "tuition" ? "text-destructive" : type === "tax" ? "text-accent" : "text-foreground";
+                  const formattedDate = new Date(p.scheduled_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
                   return (
                     <div key={p.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
                       <div>
@@ -332,19 +333,19 @@ const Dashboard = () => {
             <h2 className="font-heading text-xl font-bold mb-4">Select Your Plan</h2>
             <div className="flex flex-col gap-4 mb-4">
               <button
-                onClick={()=>setSelectedPlan("Basic")}
-                className={`p-3 rounded border ${selectedPlan==="Basic"?"border-primary bg-primary/20":"border-border"}`}
+                onClick={() => setSelectedPlan("Basic")}
+                className={`p-3 rounded border ${selectedPlan === "Basic" ? "border-primary bg-primary/20" : "border-border"}`}
               >
                 Basic (Free)
               </button>
               <button
-                onClick={()=>setSelectedPlan("Pro")}
-                className={`p-3 rounded border ${selectedPlan==="Pro"?"border-secondary bg-secondary/20":"border-border"}`}
+                onClick={() => setSelectedPlan("Pro")}
+                className={`p-3 rounded border ${selectedPlan === "Pro" ? "border-secondary bg-secondary/20" : "border-border"}`}
               >
                 Pro ($49.99/month)
               </button>
             </div>
-            {selectedPlan==="Pro" && (
+            {selectedPlan === "Pro" && (
               <div className="flex flex-col gap-2 mb-4">
                 <input
                   type="text"
@@ -352,7 +353,7 @@ const Dashboard = () => {
                   value={cardNumber}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, "");
-                    setCardNumber(val.slice(0,16));
+                    setCardNumber(val.slice(0, 16));
                   }}
                   className="p-2 border rounded w-full text-foreground bg-card placeholder:text-muted-foreground"
                 />
@@ -361,8 +362,8 @@ const Dashboard = () => {
                   placeholder="Expiry MMYY"
                   value={expiry}
                   onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g,"");
-                    setExpiry(val.slice(0,4));
+                    const val = e.target.value.replace(/\D/g, "");
+                    setExpiry(val.slice(0, 4));
                   }}
                   className="p-2 border rounded w-full text-foreground bg-card placeholder:text-muted-foreground"
                 />
@@ -371,8 +372,8 @@ const Dashboard = () => {
                   placeholder="CVV"
                   value={cvv}
                   onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g,"");
-                    setCvv(val.slice(0,3));
+                    const val = e.target.value.replace(/\D/g, "");
+                    setCvv(val.slice(0, 3));
                   }}
                   className="p-2 border rounded w-full text-foreground bg-card placeholder:text-muted-foreground"
                 />

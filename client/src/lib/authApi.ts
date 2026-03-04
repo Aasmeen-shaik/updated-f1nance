@@ -20,7 +20,7 @@ export interface TokenResponse {
 export interface UserResponse {
   id: number;
   email: string;
-  username: string; 
+  username: string;
   full_name: string;
   is_verified: boolean;
   created_at: string;
@@ -29,7 +29,7 @@ export interface UserResponse {
   visa_status?: string; // added field
 }
 
-const API_BASE: string = (import.meta as any).env?.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
+import { API_BASE } from '../config';
 
 function buildHeaders(token?: string, isJson: boolean = true): HeadersInit {
   const headers: Record<string, string> = {};
@@ -90,7 +90,7 @@ export async function loginUser(email: string, password: string) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form.toString(),
   });
-  
+
   const data = await handleResponse<TokenResponse>(res);
   console.log("Login response:", data);
   return data;
@@ -99,7 +99,7 @@ export async function loginUser(email: string, password: string) {
 export async function getCurrentUser() {
   const token = getCookie('token');
   const tokenType = getCookie('token_type') || 'bearer';
-  
+
   if (!token) {
     throw new Error('No authentication token found');
   }
