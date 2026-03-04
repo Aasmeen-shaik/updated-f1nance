@@ -1,3 +1,8 @@
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import DashboardLayout from "@/components/DashboardLayout";
+import { TrendingUp, TrendingDown, Calendar, Award } from "lucide-react";
+import { getCookie } from "@/lib/cookie";
 import { getCurrentUser } from "@/lib/authApi";
 import { API_BASE } from "@/config";
 
