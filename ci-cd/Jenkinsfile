@@ -1,0 +1,478 @@
+pipeline {
+    agent { label 'ec2' }
+
+    environment {
+        DOCKER_REGISTRY = 'docker.io/sillysavant161'
+        IMAGE_NAME = 'f1nance'
+        CLIENT_IMAGE = "${DOCKER_REGISTRY}/${IMAGE_NAME}-client"
+        SERVER_IMAGE = "${DOCKER_REGISTRY}/${IMAGE_NAME}-server"
+        JIRA_ISSUE = 'CPS-1'
+        GITHUB_ACCOUNT = 'sillysavant'
+        GITHUB_REPO = 'f1nance'
+        GITHUB_CREDENTIALS = 'github-credentials'
+        // Detect if this is a Pull Request
+        IS_PR = "${env.CHANGE_ID != null ? 'true' : 'false'}"
+    }
+
+    stages {
+
+        stage('Notify Build Start') {
+            steps {
+                script {
+                    def branchInfo = env.CHANGE_ID ? "PR-${env.CHANGE_ID}" : env.BRANCH_NAME
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                context: 'Build', status: 'PENDING', description: "Build started on ${branchInfo}")
+                    slackSend(channel: '#team2-ci-cd', color: '#439FE0',
+                              message: "🚀 *Build #${env.BUILD_NUMBER}* for *${env.JOB_NAME}* started on ${branchInfo}")
+                    jiraComment(issueKey: "${JIRA_ISSUE}", body: "Build #${env.BUILD_NUMBER} started for ${branchInfo}")
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('ESLint Code Analysis') {
+            steps {
+                script {
+                    nodejs('node20') {
+                        sh '''
+                            cd client
+                            npm install
+                            npm run lint:ci
+                        '''
+                    }
+                }
+
+                recordIssues tools: [checkStyle(pattern: 'client/eslint-report.xml')]
+            }
+        }
+
+        stage('Client: Install Dependencies') {
+            steps {
+                script {
+                    nodejs('node20') {
+                        sh '''
+                            cd client
+                            npm ci
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Client: Run Tests') {
+            steps {
+                script {
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                context: 'Client Tests', status: 'PENDING', description: 'Running client tests')
+                    
+                    try {
+                        timeout(time: 10, unit: 'MINUTES') {
+                            nodejs('node20') {
+                                sh '''
+                                    cd client
+                                    mkdir -p test-results
+                                    export CI=true
+                                    
+                                    echo "🧪 Running tests..."
+                                    npm run test:ci
+                                    
+                                    echo "✅ Tests completed"
+                                    echo "📊 Generated files:"
+                                    ls -lh test-results/
+                                    ls -lh coverage/ | head -20
+                                '''
+                            }
+                        }
+                        
+                        echo "📊 Publishing JUnit test results..."
+                        junit(
+                            testResults: 'client/test-results/junit.xml',
+                            allowEmptyResults: false,
+                            skipPublishingChecks: false
+                        )
+                        
+                        echo "📦 Archiving coverage reports as artifacts..."
+                        archiveArtifacts(
+                            artifacts: 'client/coverage/**/*,client/test-results/**/*',
+                            allowEmptyArchive: false,
+                            fingerprint: false
+                        )
+                        
+                        echo "✅ All reports published successfully"
+                        
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'Client Tests', status: 'SUCCESS', description: 'Tests passed - Coverage: ~22%')
+                        
+                        slackSend(channel: '#team2-ci-cd', color: '#2eb886',
+                                  message: """✅ *Client tests passed* 
+📊 Coverage: ~22%
+📁 Reports: ${env.BUILD_URL}artifact/client/coverage/index.html
+Build #${env.BUILD_NUMBER}""")
+                        
+                    } catch (err) {
+                        echo "❌ Test stage failed: ${err.message}"
+                        
+                        // Try to publish whatever we have
+                        try {
+                            junit testResults: 'client/test-results/junit.xml', allowEmptyResults: true
+                            archiveArtifacts artifacts: 'client/coverage/**/*,client/test-results/**/*', allowEmptyArchive: true
+                        } catch (e) {
+                            echo "Could not publish results: ${e.message}"
+                        }
+                        
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'Client Tests', status: 'FAILURE', description: 'Client tests failed')
+                        
+                        slackSend(channel: '#team2-ci-cd', color: '#a30200',
+                                  message: "❌ *Client tests failed* for build #${env.BUILD_NUMBER}")
+                        
+                        error "Client tests failed: ${err.message}"
+                    }
+                }
+            }
+        }
+
+        stage('OWASP Dependency-Check') {
+            steps {
+                script {
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                context: 'Security Scan', status: 'PENDING', description: 'Running OWASP Dependency-Check')
+                    
+                    try {
+                        // Run dependency check on both client and server
+                            withCredentials([string(credentialsId: 'NVD_API_KEY', variable: 'NVD_API_KEY')]) {
+                            dependencyCheck additionalArguments: '''
+                                --scan ./
+                                --nvdApiKey ${NVD_API_KEY}
+                                --format HTML
+                                --format XML
+                                --format JSON
+                                --suppression dependency-check-suppressions.xml
+                                --enableExperimental
+                                --prettyPrint
+                            ''', 
+                            odcInstallation: 'dependency-check',
+                            stopBuild: false
+                        }
+
+                        // Publish the dependency check results
+                        dependencyCheckPublisher pattern: '**/dependency-check-report.xml',
+                                                stopBuild: false,
+                                                failedTotalCritical: 5,
+                                                failedTotalHigh: 10,
+                                                unstableTotalCritical: 3,
+                                                unstableTotalHigh: 7
+
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'Security Scan', status: 'SUCCESS', description: 'Security scan completed')
+                        
+                        slackSend(channel: '#team2-ci-cd', color: '#2eb886',
+                                  message: "🔒 *Security Scan* completed for build #${env.BUILD_NUMBER}")
+                        
+                    } catch (err) {
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'Security Scan', status: 'FAILURE', description: 'Security scan failed or found critical vulnerabilities')
+                        
+                        slackSend(channel: '#team2-ci-cd', color: '#ffa500',
+                                  message: "⚠️ *Security Scan* found critical vulnerabilities in build #${env.BUILD_NUMBER}")
+                        
+                        jiraComment(issueKey: "${JIRA_ISSUE}", 
+                                   body: "OWASP Dependency-Check found critical vulnerabilities in build #${env.BUILD_NUMBER}. Review the report.")
+                        
+                        // Decide whether to fail the build or just warn
+                        // error "Critical vulnerabilities found" // Uncomment to fail build
+                        unstable("Vulnerabilities detected")
+                    }
+                }
+            }
+        }
+
+
+        // stage('Server Tests & Coverage') {
+        //     steps {
+        //         sh '''
+        //             cd server
+        //             pip install -r requirements.txt
+        //             pip install pytest pytest-cov
+        //             pytest --junitxml=pytest-report.xml --cov=app --cov-report=xml --cov-report=html
+        //         '''
+
+        //         junit 'server/pytest-report.xml'
+
+        //         publishHTML(target: [
+        //             reportDir: 'server/htmlcov',
+        //             reportFiles: 'index.html',
+        //             reportName: 'Server Coverage'
+        //         ])
+        //     }
+        // }
+
+        stage('Build and Push Client Image') {
+            steps {
+                script {
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                context: 'Client Docker Build', status: 'PENDING', description: 'Building client Docker image')
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        retry(3)  {
+                            sh '''
+                                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                            '''
+                        }
+
+                        retry(2) {
+                            sh '''
+                                docker build -t ${CLIENT_IMAGE}:${BUILD_NUMBER} -f ci-cd/client.Dockerfile client/
+                            '''
+                        }
+
+                        retry(3)  {
+                            sh '''
+                                docker push ${CLIENT_IMAGE}:${BUILD_NUMBER}
+                                docker tag ${CLIENT_IMAGE}:${BUILD_NUMBER} ${CLIENT_IMAGE}:latest
+                                docker push ${CLIENT_IMAGE}:latest
+                            '''
+                        }
+                    }
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                context: 'Client Docker Build', status: 'SUCCESS', description: 'Client Docker image built and pushed')
+                }
+            }
+        }
+
+        stage('Build and Push Server Image') {
+            steps {
+                script {
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO,
+                                context: 'Server Docker Build', status: 'PENDING', description: 'Building server Docker image')
+
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        retry(3)  {
+                            sh '''
+                                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                            '''
+                        }
+
+                        retry(2) {
+                            sh '''
+                                docker build -t ${SERVER_IMAGE}:${BUILD_NUMBER} -f ci-cd/server.Dockerfile .
+                            '''
+                        }
+
+                        retry(3)  {
+                            sh '''
+                                
+                                docker push ${SERVER_IMAGE}:${BUILD_NUMBER}
+                                docker tag ${SERVER_IMAGE}:${BUILD_NUMBER} ${SERVER_IMAGE}:latest
+                                docker push ${SERVER_IMAGE}:latest
+                            '''
+                        }
+
+                    }
+
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO,
+                                context: 'Server Docker Build', status: 'SUCCESS', description: 'Server Docker image built and pushed')
+                }
+            }
+        }
+
+        stage('Performance Test') {
+            steps {
+                sh '''
+                    mkdir -p perf-results
+                    jmeter -n \
+                        -t ci-cd/jmeter/api-load-test.jmx \
+                        -l perf-results/results.jtl \
+                        -j perf-results/jmeter.log \
+                        -e -o perf-results/dashboard
+                '''
+            }
+
+            post {
+                always {
+                    publishHTML(target: [
+                        reportDir: 'perf-results/dashboard',
+                        reportFiles: 'index.html',
+                        reportName: 'JMeter Performance Report'
+                    ])
+                }
+            }
+        }
+
+        stage('Deploy to Staging') {
+            when { 
+                branch 'develop'
+                expression { env.CHANGE_ID == null }  // Skip for PRs
+            }
+            steps {
+                script {
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                context: 'Staging Deploy', status: 'PENDING', description: 'Deploying client to staging')
+                    try {
+                        sh '''
+                            docker rm -f f1nance-client-staging || true
+                            sleep 3
+                            docker run -d --name f1nance-client-staging -p 3000:80 ${CLIENT_IMAGE}:${BUILD_NUMBER}
+                        '''
+                        slackSend(channel: '#team2-ci-cd', color: '#2eb886',
+                                  message: "✅ *Staging* deployment successful for client build #${env.BUILD_NUMBER}")
+                        jiraComment(issueKey: "${JIRA_ISSUE}", body: "Staging deployment succeeded for client build #${env.BUILD_NUMBER}")
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'Staging Deploy', status: 'SUCCESS', description: 'Client deployed to staging')
+                    } catch (err) {
+                        slackSend(channel: '#team2-ci-cd', color: '#a30200',
+                                  message: "❌ *Staging* deployment failed for client build #${env.BUILD_NUMBER}")
+                        jiraComment(issueKey: "${JIRA_ISSUE}", body: "Staging deployment failed for client build #${env.BUILD_NUMBER}: ${err}")
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'Staging Deploy', status: 'FAILURE', description: 'Client staging deployment failed')
+                        error "Staging deployment failed"
+                    }
+                }
+            }
+        }
+
+        stage('Manual Approval for QA') {
+            when { 
+                branch 'main'
+                expression { env.CHANGE_ID == null }
+            }
+            steps {
+                script {
+                    timeout(time: 30, unit: 'MINUTES') {
+                        input message: 'Approve deployment to QA'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to QA') {
+            when { 
+                branch 'main'
+                expression { env.CHANGE_ID == null }  // Skip for PRs
+            }
+            steps {
+                script {
+                    githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                context: 'QA Deploy', status: 'PENDING', description: 'Deploying to QA environment')
+                    try {
+
+                        def publicIP = ""
+
+                        withCredentials([
+                            sshUserPrivateKey(credentialsId: 'cc1cf242-2558-4122-b60d-6bb23cf6601d', keyFileVariable: 'SSH_KEY'),
+                            usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS'),
+                            string(credentialsId: 'f1nance_DB_USER', variable: 'DB_USER'),
+                            string(credentialsId: 'f1nance_DB_PASSWORD', variable: 'DB_PASSWORD'),
+                            string(credentialsId: 'f1nance_DB_HOST', variable: 'DB_HOST'),
+                            string(credentialsId: 'f1nance_DB_NAME', variable: 'DB_NAME'),
+                            string(credentialsId: 'JWT_SECRET_KEY', variable: 'JWT_SECRET_KEY')
+                        ]) {
+                            retry(3) {
+
+                                sh """
+                                    ssh -o StrictHostKeyChecking=no -i \$SSH_KEY ec2-user@52.14.182.184 << 'ENDSSH'
+                                        # Stop and remove existing containers
+                                        docker system prune -a
+                                        
+                                        sleep 2
+
+                                        set -e
+
+                                        # Login to Docker Hub
+                                        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+                                        # Pull latest images
+                                        docker pull ${CLIENT_IMAGE}:latest
+                                        docker pull ${SERVER_IMAGE}:latest
+
+                                        # Run containers
+                                        docker run -d --name f1nance-server -p 8000:8000 \
+                                            -e DB_USER="${DB_USER}" \
+                                            -e DB_PASSWORD="${DB_PASSWORD}" \
+                                            -e DB_HOST="${DB_HOST}" \
+                                            -e DB_NAME="${DB_NAME}" \
+                                            -e JWT_SECRET_KEY="${JWT_SECRET_KEY}" \
+                                            ${SERVER_IMAGE}:latest
+
+                                        docker run -d --name f1nance-client -p 80:80 --link f1nance-server ${CLIENT_IMAGE}:latest
+
+                                        echo "✅ Deployment to QA completed!"
+ENDSSH
+                                """
+                            }
+
+                            
+                            publicIP = sh(
+                                script: "ssh -o StrictHostKeyChecking=no -i \$SSH_KEY ec2-user@52.14.182.184 'curl -s http://checkip.amazonaws.com'",
+                                returnStdout: true
+                            ).trim()
+                            
+                            echo "🌐 Application URLs:"
+                            echo "   Client:  http://${publicIP}"
+                            echo "   API:     http://${publicIP}:8000"
+                            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        }
+                        slackSend(channel: '#team2-ci-cd', color: '#2eb886',
+                                  message: """🚀 *QA deployment successful*
+Build #${env.BUILD_NUMBER}
+Client: http://${publicIP}
+API: http://${publicIP}:8000""")
+                        jiraComment(issueKey: "${JIRA_ISSUE}", body: "QA deployment succeeded for build #${env.BUILD_NUMBER}")
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'QA Deploy', status: 'SUCCESS', description: 'QA deployment successful')
+                    } catch (err) {
+                        slackSend(channel: '#team2-ci-cd', color: '#a30200',
+                                  message: "❌ *QA* deployment failed for build #${env.BUILD_NUMBER}: ${err.message}")
+                        jiraComment(issueKey: "${JIRA_ISSUE}", body: "QA deployment failed for build #${env.BUILD_NUMBER}: ${err}")
+                        githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                                    context: 'QA Deploy', status: 'FAILURE', description: 'QA deployment failed')
+                        error "QA deployment failed: ${err.message}"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh '''
+                docker ps -aq | xargs -r docker stop
+                docker container prune -f
+                docker system prune -af --volumes || true
+            '''
+            cleanWs()
+        }
+
+        success {
+            script {
+                def branchInfo = env.CHANGE_ID ? "PR-${env.CHANGE_ID}" : env.BRANCH_NAME
+                slackSend(channel: '#team2-ci-cd', color: '#36a64f',
+                          message: "✅ Pipeline succeeded for *${env.JOB_NAME}* build #${env.BUILD_NUMBER} on ${branchInfo}")
+                jiraComment(issueKey: "${JIRA_ISSUE}", body: "Build #${env.BUILD_NUMBER} succeeded for ${branchInfo}")
+                githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                            context: 'Build', status: 'SUCCESS', description: 'Pipeline succeeded')
+            }
+        }
+
+        failure {
+            script {
+                def branchInfo = env.CHANGE_ID ? "PR-${env.CHANGE_ID}" : env.BRANCH_NAME
+                slackSend(channel: '#team2-ci-cd', color: '#ff0000',
+                          message: "❌ Pipeline failed for *${env.JOB_NAME}* build #${env.BUILD_NUMBER} on ${branchInfo}")
+                jiraComment(issueKey: "${JIRA_ISSUE}", body: "Build #${env.BUILD_NUMBER} failed for ${branchInfo}")
+                githubNotify(credentialsId: GITHUB_CREDENTIALS, account: GITHUB_ACCOUNT, repo: GITHUB_REPO, 
+                            context: 'Build', status: 'FAILURE', description: 'Pipeline failed')
+            }
+        }
+    }
+}
